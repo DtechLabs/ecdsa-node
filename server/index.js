@@ -2,34 +2,43 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const port = 3042;
+const { recoverKey, getAddress } = require("./scripts/cryptoUtils");
 
 app.use(cors());
 app.use(express.json());
 
-const balances = {
-  "0x1": 100,
-  "0x2": 50,
-  "0x3": 75,
-};
+const balancesJSON = require("./balances.json");
+const { toHex } = require("ethereum-cryptography/utils");
+const balances = Object.assign({}, balancesJSON);
 
 app.get("/balance/:address", (req, res) => {
   const { address } = req.params;
-  const balance = balances[address] || 0;
+  const balance = balances[address].balance || 0;
   res.send({ balance });
 });
 
 app.post("/send", (req, res) => {
-  const { sender, recipient, amount } = req.body;
+  const { tx, signature } = req.body;
 
-  setInitialBalance(sender);
-  setInitialBalance(recipient);
-
-  if (balances[sender] < amount) {
-    res.status(400).send({ message: "Not enough funds!" });
+  // Chech signature
+  const publicKey = recoverKey(tx, signature);
+  console.log("Recovered public key", toHex(publicKey));
+  const address = getAddress(publicKey);
+  console.log("To address", address, "Sender" , tx.sender);
+  if (address !== tx.sender) {
+    res.status(400).send({ message: "Invalid signature!" });
   } else {
-    balances[sender] -= amount;
-    balances[recipient] += amount;
-    res.send({ balance: balances[sender] });
+    setInitialBalance(tx.sender);
+    setInitialBalance(tx.recipient);
+
+    if (balances[tx.sender] < tx.amount) {
+      res.status(400).send({ message: "Not enough funds!" });
+    } else {
+      balances[tx.sender].balance -= tx.amount;
+      balances[tx.recipient].balance += tx.amount;
+      res.send({ balance: balances[tx.sender].balance });
+      console.log(balances);
+    }
   }
 });
 
